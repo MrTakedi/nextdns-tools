@@ -5,6 +5,7 @@ A comprehensive collection of tools for downloading and analyzing NextDNS logs.
 ## Features
 
 - 🚀 **Automatic Pagination**: Handles large log files by automatically paginating through the NextDNS API
+- ♾️ **Unlimited Downloads**: Downloads your ENTIRE log history by default with no limits
 - 📊 **Multiple Export Formats**: Export logs to both JSON and CSV formats
 - 🌐 **Interactive HTML Viewer**: Beautiful, responsive web interface to view and analyze logs
 - 📱 **Device Analysis**: Group and filter logs by device
@@ -34,11 +35,11 @@ For a quick start, you can use the provided example script:
 # Edit example.sh and set your API credentials
 nano example.sh  # or use your preferred editor
 
-# Run the script
+# Run the script to download ALL logs
 ./example.sh
 ```
 
-This will download up to 1000 logs and automatically open the viewer in your browser.
+This will download your **entire log history** (no limits) and automatically open the viewer in your browser.
 
 ### Downloading Logs
 
@@ -46,11 +47,13 @@ The `nextdns_logs.py` script downloads logs from the NextDNS API with automatic 
 
 #### Basic Usage
 
+Download **ALL** your NextDNS logs (entire history):
+
 ```bash
 python nextdns_logs.py --api-key YOUR_API_KEY --profile YOUR_PROFILE_ID
 ```
 
-This will download all logs and save them to `nextdns_logs.json` and `nextdns_logs.csv`.
+This will download your **complete log history** and save it to `nextdns_logs.json` and `nextdns_logs.csv`. The tool uses automatic pagination to prevent timeouts, so even very large log histories will download successfully.
 
 #### Using Environment Variables
 
@@ -65,7 +68,7 @@ python nextdns_logs.py
 #### Advanced Options
 
 ```bash
-# Download a limited number of logs
+# Optionally limit the number of logs (only if you don't want the full history)
 python nextdns_logs.py --api-key YOUR_API_KEY --profile YOUR_PROFILE_ID --max-logs 1000
 
 # Specify custom output filename
@@ -78,12 +81,14 @@ python nextdns_logs.py --api-key YOUR_API_KEY --profile YOUR_PROFILE_ID --json-o
 python nextdns_logs.py --api-key YOUR_API_KEY --profile YOUR_PROFILE_ID --csv-only
 ```
 
+**Note:** The `--max-logs` option is optional. By default, the tool downloads your **entire log history** without any limits.
+
 #### Command-Line Options
 
 - `--api-key`: Your NextDNS API key (or set `NEXTDNS_API_KEY` environment variable)
 - `--profile`: Your NextDNS profile/configuration ID (or set `NEXTDNS_PROFILE_ID` environment variable)
 - `--output`: Output filename prefix (default: `nextdns_logs`)
-- `--max-logs`: Maximum number of logs to download (default: all)
+- `--max-logs`: **Optional** - Maximum number of logs to download. **Default: ALL logs (no limit)**
 - `--json-only`: Only save JSON output (skip CSV)
 - `--csv-only`: Only save CSV output (skip JSON)
 

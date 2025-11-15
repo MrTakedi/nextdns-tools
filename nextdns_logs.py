@@ -186,14 +186,15 @@ class NextDNSLogDownloader:
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
-        description='Download logs from NextDNS API with pagination support',
+        description='Download ALL logs from NextDNS API with automatic pagination support. '
+                    'By default, this tool downloads your entire log history without any limits.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Download all logs and save to JSON and CSV
+  # Download ALL logs (entire history) and save to JSON and CSV
   python nextdns_logs.py --api-key YOUR_API_KEY --profile YOUR_PROFILE_ID
   
-  # Download limited number of logs
+  # Optionally limit the number of logs (use only if needed)
   python nextdns_logs.py --api-key YOUR_API_KEY --profile YOUR_PROFILE_ID --max-logs 1000
   
   # Specify custom output filenames
@@ -202,6 +203,9 @@ Examples:
 Environment Variables:
   NEXTDNS_API_KEY      - Your NextDNS API key
   NEXTDNS_PROFILE_ID   - Your NextDNS profile/configuration ID
+
+Note: By default, this tool downloads your ENTIRE log history from NextDNS.
+      Large log histories may take some time to download but pagination prevents timeouts.
         """
     )
     
@@ -230,7 +234,7 @@ Environment Variables:
         '--max-logs',
         type=int,
         default=None,
-        help='Maximum number of logs to download (default: all)'
+        help='Optional: Maximum number of logs to download. By default, ALL logs are downloaded (no limit).'
     )
     
     parser.add_argument(

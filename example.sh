@@ -7,13 +7,15 @@
 export NEXTDNS_API_KEY="your_api_key_here"
 export NEXTDNS_PROFILE_ID="your_profile_id_here"
 
-# Download logs (limited to 1000 for this example)
-echo "Downloading NextDNS logs..."
-python3 nextdns_logs.py --max-logs 1000
+# Download ALL logs (entire history)
+# The tool automatically handles pagination to prevent timeouts
+echo "Downloading ALL NextDNS logs (entire history)..."
+echo "This may take some time depending on your log size..."
+python3 nextdns_logs.py
 
 # Check if download was successful
 if [ $? -eq 0 ]; then
-    echo "✅ Logs downloaded successfully!"
+    echo "✅ All logs downloaded successfully!"
     echo "📁 Files created:"
     echo "   - nextdns_logs.json"
     echo "   - nextdns_logs.csv"
