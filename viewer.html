@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NextDNS Logs Viewer</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        body {
+            background: #f8f9fa;
+            padding-top: 20px;
+            padding-bottom: 40px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .stat-card h6 {
+            font-size: 0.875rem;
+            opacity: 0.9;
+            margin-bottom: 8px;
+        }
+
+        .stat-card .display-4 {
+            font-size: 2rem;
+            font-weight: bold;
+        }
+
+        .stat-card-blocked {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        .stat-card-domains {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+
+        .stat-card-devices {
+            background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+        }
+
+        .device-card {
+            transition: all 0.3s;
+            cursor: pointer;
+            height: 100%;
+        }
+
+        .device-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .device-icon {
+            width: 40px;
+            height: 40px;
+            background: #e0e7ff;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+
+        .domain-cell {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .favicon {
+            width: 16px;
+            height: 16px;
+            border-radius: 2px;
+        }
+
+        .status-allowed {
+            color: #198754;
+        }
+
+        .status-blocked {
+            color: #dc3545;
+        }
+
+        .table-responsive {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .table thead th {
+            position: sticky;
+            top: 0;
+            background: white;
+            z-index: 10;
+        }
+
+        @media (max-width: 768px) {
+            .stat-card .display-4 {
+                font-size: 1.5rem;
+            }
+            
+            .table {
+                font-size: 0.875rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid px-3 px-md-4">
+        <div class="row">
+            <div class="col-12">
+                <div class="bg-white rounded shadow-sm p-4 mb-4">
+                    <h1 class="text-primary mb-2">
+                        <i class="bi bi-shield-check"></i> NextDNS Logs Viewer
+                    </h1>
+                    <p class="text-muted mb-4">View and analyze your NextDNS query logs</p>
+
+                    <div class="border border-2 border-dashed rounded p-4 text-center bg-light">
+                        <h5 class="mb-3">Load Log File</h5>
+                        <p class="text-muted mb-3">Upload a JSON or CSV file exported from nextdns_logs.py</p>
+                        <input type="file" id="fileInput" accept=".json,.csv" class="form-control" style="max-width: 400px; margin: 0 auto;">
+                    </div>
+                </div>
+
+                <div id="content"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap 5 JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        let allLogs = [];
+        let currentView = 'overview';
+        let currentDevice = null;
+        let currentPage = 1;
+        const LOGS_PER_PAGE = 50;
+
+        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const content = e.target.result;
+                    if (file.name.endsWith('.json')) {
+                        allLogs = JSON.parse(content);
+                    } else if (file.name.endsWith('.csv')) {
+                        allLogs = parseCSV(content);
+                    }
+                    
+                    if (!allLogs || allLogs.length === 0) {
+                        showError('No logs found in the file');
+                        return;
+                    }
+
+                    showOverview();
+                } catch (error) {
+                    showError('Error parsing file: ' + error.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function parseCSV(content) {
+            const lines = content.split('\n');
+            const headers = lines[0].split(',').map(h => h.trim());
+            const logs = [];
+
+            for (let i = 1; i < lines.length; i++) {
+                if (!lines[i].trim()) continue;
+                
+                const values = lines[i].split(',');
+                const log = {};
+                
+                headers.forEach((header, index) => {
+                    log[header] = values[index] ? values[index].trim() : '';
+                });
+                
+                logs.push(log);
+            }
+
+            return logs;
+        }
+
+        function showError(message) {
+            document.getElementById('content').innerHTML = `
+                <div class="alert alert-danger" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill"></i> ${message}
+                </div>
+            `;
+        }
+
+        function showOverview() {
+            currentView = 'overview';
+            const devices = getDeviceStats();
+            const totalQueries = allLogs.length;
+            const blockedQueries = allLogs.filter(log => isBlocked(log)).length;
+            const uniqueDomains = new Set(allLogs.map(log => getDomain(log))).size;
+
+            const html = `
+                <div class="bg-white rounded shadow-sm p-4 mb-4">
+                    <div class="row g-3 mb-4">
+                        <div class="col-12 col-sm-6 col-lg-3">
+                            <div class="stat-card p-3">
+                                <h6 class="mb-2">Total Queries</h6>
+                                <div class="display-4">${totalQueries.toLocaleString()}</div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-sm-6 col-lg-3">
+                            <div class="stat-card stat-card-blocked p-3">
+                                <h6 class="mb-2">Blocked Queries</h6>
+                                <div class="display-4">${blockedQueries.toLocaleString()}</div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-sm-6 col-lg-3">
+                            <div class="stat-card stat-card-domains p-3">
+                                <h6 class="mb-2">Unique Domains</h6>
+                                <div class="display-4">${uniqueDomains.toLocaleString()}</div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-sm-6 col-lg-3">
+                            <div class="stat-card stat-card-devices p-3">
+                                <h6 class="mb-2">Devices</h6>
+                                <div class="display-4">${devices.length}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <ul class="nav nav-tabs mb-3" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-devices" type="button" role="tab">
+                                <i class="bi bi-devices"></i> Devices
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-allLogs" type="button" role="tab">
+                                <i class="bi bi-list-ul"></i> All Logs
+                            </button>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="tab-devices" role="tabpanel">
+                            <div class="row g-3">
+                                ${devices.map(device => `
+                                    <div class="col-12 col-sm-6 col-md-4 col-lg-3">
+                                        <div class="card device-card h-100" onclick="showDeviceLogs('${escapeHtml(device.name)}')">
+                                            <div class="card-body">
+                                                <div class="d-flex align-items-center mb-2">
+                                                    <div class="device-icon me-2">
+                                                        <i class="bi bi-phone"></i>
+                                                    </div>
+                                                    <h5 class="card-title mb-0">${escapeHtml(device.name)}</h5>
+                                                </div>
+                                                <p class="card-text text-muted mb-0">
+                                                    <i class="bi bi-bar-chart-fill"></i> ${device.count.toLocaleString()} queries
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="tab-allLogs" role="tabpanel">
+                            ${renderLogsTable(allLogs)}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('content').innerHTML = html;
+        }
+
+        function getDeviceStats() {
+            const deviceMap = {};
+            
+            allLogs.forEach(log => {
+                const device = getDevice(log);
+                if (!deviceMap[device]) {
+                    deviceMap[device] = 0;
+                }
+                deviceMap[device]++;
+            });
+
+            return Object.entries(deviceMap)
+                .map(([name, count]) => ({ name, count }))
+                .sort((a, b) => b.count - a.count);
+        }
+
+        function showDeviceLogs(deviceName) {
+            currentView = 'device';
+            currentDevice = deviceName;
+            currentPage = 1;
+            
+            const deviceLogs = allLogs.filter(log => getDevice(log) === deviceName);
+            
+            const html = `
+                <div class="bg-white rounded shadow-sm p-4">
+                    <button class="btn btn-primary mb-3" onclick="showOverview()">
+                        <i class="bi bi-arrow-left"></i> Back to Overview
+                    </button>
+                    
+                    <h2 class="mb-2">
+                        <i class="bi bi-phone"></i> ${escapeHtml(deviceName)}
+                    </h2>
+                    <p class="text-muted mb-4">${deviceLogs.length.toLocaleString()} queries</p>
+
+                    ${renderLogsTable(deviceLogs)}
+                </div>
+            `;
+
+            document.getElementById('content').innerHTML = html;
+        }
+
+        function renderLogsTable(logs, page = 1) {
+            const start = (page - 1) * LOGS_PER_PAGE;
+            const end = start + LOGS_PER_PAGE;
+            const paginatedLogs = logs.slice(start, end);
+            const totalPages = Math.ceil(logs.length / LOGS_PER_PAGE);
+
+            return `
+                <div class="mb-3">
+                    <input type="text" class="form-control" placeholder="Search domain..." 
+                           onkeyup="filterLogs(this.value)">
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Domain</th>
+                                <th class="d-none d-md-table-cell">Type</th>
+                                <th>Status</th>
+                                <th class="d-none d-lg-table-cell">Device</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${paginatedLogs.map(log => `
+                                <tr>
+                                    <td class="text-nowrap">${formatTime(getTimestamp(log))}</td>
+                                    <td>
+                                        <div class="domain-cell">
+                                            <img class="favicon" 
+                                                 src="https://favicons.nextdns.io/${getDomain(log)}" 
+                                                 onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2216%22 height=%2216%22%3E%3Crect width=%2216%22 height=%2216%22 fill=%22%23ccc%22/%3E%3C/svg%3E'"
+                                                 alt="">
+                                            <span class="text-break">${escapeHtml(getDomain(log))}</span>
+                                        </div>
+                                    </td>
+                                    <td class="d-none d-md-table-cell">${escapeHtml(getType(log))}</td>
+                                    <td>
+                                        <span class="badge ${isBlocked(log) ? 'bg-danger' : 'bg-success'}">
+                                            ${isBlocked(log) ? '🚫 Blocked' : '✅ Allowed'}
+                                        </span>
+                                    </td>
+                                    <td class="d-none d-lg-table-cell">${escapeHtml(getDevice(log))}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+
+                ${totalPages > 1 ? `
+                    <nav aria-label="Page navigation">
+                        <ul class="pagination justify-content-center">
+                            <li class="page-item ${page === 1 ? 'disabled' : ''}">
+                                <button class="page-link" onclick="changePage(${page - 1})" ${page === 1 ? 'disabled' : ''}>
+                                    Previous
+                                </button>
+                            </li>
+                            <li class="page-item disabled">
+                                <span class="page-link">Page ${page} of ${totalPages}</span>
+                            </li>
+                            <li class="page-item ${page === totalPages ? 'disabled' : ''}">
+                                <button class="page-link" onclick="changePage(${page + 1})" ${page === totalPages ? 'disabled' : ''}>
+                                    Next
+                                </button>
+                            </li>
+                        </ul>
+                    </nav>
+                ` : ''}
+            `;
+        }
+
+        function changePage(newPage) {
+            currentPage = newPage;
+            if (currentView === 'device') {
+                showDeviceLogs(currentDevice);
+            } else {
+                showOverview();
+            }
+        }
+
+        function filterLogs(searchTerm) {
+            const logs = currentDevice 
+                ? allLogs.filter(log => getDevice(log) === currentDevice)
+                : allLogs;
+            
+            const filtered = searchTerm 
+                ? logs.filter(log => getDomain(log).toLowerCase().includes(searchTerm.toLowerCase()))
+                : logs;
+
+            const tableContainer = document.querySelector('.table-responsive').parentElement;
+            tableContainer.innerHTML = renderLogsTable(filtered, 1);
+        }
+
+        // Helper functions to extract data from different log formats
+        function getDomain(log) {
+            return log.name || log.domain || log.query || '';
+        }
+
+        function getDevice(log) {
+            return log.device || log.device_name || log.clientName || 'Unknown';
+        }
+
+        function getType(log) {
+            return log.type || log.query_type || log.queryType || 'A';
+        }
+
+        function isBlocked(log) {
+            const status = log.status || log.action || '';
+            return status.toLowerCase().includes('block') || 
+                   status.toLowerCase().includes('denied') ||
+                   status === '2' ||
+                   log.blocked === true ||
+                   log.blocked === 'true';
+        }
+
+        function getTimestamp(log) {
+            return log.timestamp || log.time || log.datetime || new Date().toISOString();
+        }
+
+        function formatTime(timestamp) {
+            try {
+                const date = new Date(timestamp);
+                return date.toLocaleString();
+            } catch {
+                return timestamp;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
