@@ -26,6 +26,20 @@ pip install -r requirements.txt
 
 ## Usage
 
+### Quick Start
+
+For a quick start, you can use the provided example script:
+
+```bash
+# Edit example.sh and set your API credentials
+nano example.sh  # or use your preferred editor
+
+# Run the script
+./example.sh
+```
+
+This will download up to 1000 logs and automatically open the viewer in your browser.
+
 ### Downloading Logs
 
 The `nextdns_logs.py` script downloads logs from the NextDNS API with automatic pagination support.
