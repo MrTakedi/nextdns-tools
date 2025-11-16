@@ -42,13 +42,15 @@ class NextDNSLogDownloader:
             'X-Api-Key': api_key
         })
     
-    def get_logs(self, limit: int = 100, cursor: Optional[str] = None) -> Dict[str, Any]:
+    def get_logs(self, limit: int = 100, cursor: Optional[str] = None, from_timestamp: Optional[int] = None, max_retries: int = 3) -> Dict[str, Any]:
         """
         Fetch logs from NextDNS API.
         
         Args:
             limit: Number of logs per request (max 100)
             cursor: Pagination cursor for next page
+            from_timestamp: Optional Unix timestamp to fetch logs from
+            max_retries: Maximum number of retries for transient failures
             
         Returns:
             Dictionary containing logs data and pagination info
@@ -59,20 +61,59 @@ class NextDNSLogDownloader:
         if cursor:
             params['cursor'] = cursor
         
-        try:
-            response = self.session.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            print(f"Error fetching logs: {e}")
-            return {'data': [], 'meta': {}}
+        if from_timestamp:
+            params['from'] = from_timestamp
+        
+        for attempt in range(max_retries):
+            try:
+                response = self.session.get(url, params=params, timeout=30)
+                
+                # Handle rate limiting with exponential backoff
+                if response.status_code == 429:
+                    retry_after = int(response.headers.get('Retry-After', 60))
+                    print(f"Rate limited. Waiting {retry_after} seconds before retry...")
+                    time.sleep(retry_after)
+                    continue
+                
+                # Handle specific HTTP errors
+                if response.status_code == 403:
+                    print(f"Error: Authentication failed (403). Check your API key.")
+                    return {'data': [], 'meta': {}}
+                elif response.status_code == 404:
+                    print(f"Error: Profile not found (404). Check your profile ID.")
+                    return {'data': [], 'meta': {}}
+                
+                response.raise_for_status()
+                return response.json()
+                
+            except requests.exceptions.Timeout:
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt  # Exponential backoff
+                    print(f"Request timeout. Retrying in {wait_time} seconds... (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                else:
+                    print(f"Error: Request timeout after {max_retries} attempts")
+                    return {'data': [], 'meta': {}}
+                    
+            except requests.exceptions.RequestException as e:
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    print(f"Request failed: {e}. Retrying in {wait_time} seconds... (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                else:
+                    print(f"Error fetching logs after {max_retries} attempts: {e}")
+                    return {'data': [], 'meta': {}}
+        
+        return {'data': [], 'meta': {}}
     
-    def download_all_logs(self, max_logs: Optional[int] = None) -> List[Dict[str, Any]]:
+    def download_all_logs(self, max_logs: Optional[int] = None, from_timestamp: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Download all logs with automatic pagination.
         
         Args:
             max_logs: Maximum number of logs to download (None for all)
+            from_timestamp: Optional Unix timestamp to fetch logs from.
+                          If None, defaults to 2 years ago (NextDNS max retention period)
             
         Returns:
             List of all log entries
@@ -81,12 +122,19 @@ class NextDNSLogDownloader:
         cursor = None
         page = 1
         
-        print("Starting log download...")
+        # If no from_timestamp is specified, default to 2 years ago
+        # This is the maximum retention period NextDNS allows
+        if from_timestamp is None:
+            two_years_ago = datetime.now() - timedelta(days=730)
+            from_timestamp = int(two_years_ago.timestamp())
+            print(f"Starting log download from {two_years_ago.strftime('%Y-%m-%d %H:%M:%S')} (2 years ago, max retention)...")
+        else:
+            print(f"Starting log download from timestamp {from_timestamp} ({datetime.fromtimestamp(from_timestamp)})...")
         
         while True:
             print(f"Fetching page {page}...", end=' ')
             
-            response = self.get_logs(cursor=cursor)
+            response = self.get_logs(cursor=cursor, from_timestamp=from_timestamp)
             logs = response.get('data', [])
             meta = response.get('meta', {})
             
@@ -186,16 +234,19 @@ class NextDNSLogDownloader:
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
-        description='Download ALL logs from NextDNS API with automatic pagination support. '
-                    'By default, this tool downloads your entire log history without any limits.',
+        description='Download logs from NextDNS API with automatic pagination support. '
+                    'By default, downloads all logs from the past 2 years (NextDNS maximum retention period).',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Download ALL logs (entire history) and save to JSON and CSV
+  # Download ALL logs (from 2 years ago to now, the max retention period)
   python nextdns_logs.py --api-key YOUR_API_KEY --profile YOUR_PROFILE_ID
   
   # Optionally limit the number of logs (use only if needed)
   python nextdns_logs.py --api-key YOUR_API_KEY --profile YOUR_PROFILE_ID --max-logs 1000
+  
+  # Download logs from a specific timestamp (Unix timestamp)
+  python nextdns_logs.py --api-key YOUR_API_KEY --profile YOUR_PROFILE_ID --from-timestamp 1700000000
   
   # Specify custom output filenames
   python nextdns_logs.py --api-key YOUR_API_KEY --profile YOUR_PROFILE_ID --output my_logs
@@ -204,8 +255,10 @@ Environment Variables:
   NEXTDNS_API_KEY      - Your NextDNS API key
   NEXTDNS_PROFILE_ID   - Your NextDNS profile/configuration ID
 
-Note: By default, this tool downloads your ENTIRE log history from NextDNS.
-      Large log histories may take some time to download but pagination prevents timeouts.
+Note: By default, this tool downloads your ENTIRE log history from the past 2 years
+      (NextDNS maximum retention period). Large log histories may take some time to 
+      download but pagination prevents timeouts. The tool includes automatic retry 
+      logic and rate limiting handling for robust downloads.
         """
     )
     
@@ -234,7 +287,14 @@ Note: By default, this tool downloads your ENTIRE log history from NextDNS.
         '--max-logs',
         type=int,
         default=None,
-        help='Optional: Maximum number of logs to download. By default, ALL logs are downloaded (no limit).'
+        help='Optional: Maximum number of logs to download. By default, downloads ALL available logs (up to 2 years).'
+    )
+    
+    parser.add_argument(
+        '--from-timestamp',
+        type=int,
+        default=None,
+        help='Optional: Unix timestamp to fetch logs from. By default, fetches from 2 years ago (NextDNS max retention).'
     )
     
     parser.add_argument(
@@ -263,7 +323,7 @@ Note: By default, this tool downloads your ENTIRE log history from NextDNS.
     
     # Download logs
     try:
-        logs = downloader.download_all_logs(max_logs=args.max_logs)
+        logs = downloader.download_all_logs(max_logs=args.max_logs, from_timestamp=args.from_timestamp)
         
         if not logs:
             print("No logs downloaded.")
