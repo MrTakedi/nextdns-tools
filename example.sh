@@ -7,9 +7,9 @@
 export NEXTDNS_API_KEY="your_api_key_here"
 export NEXTDNS_PROFILE_ID="your_profile_id_here"
 
-# Download ALL logs (entire history)
+# Download ALL logs from the past 2 years (NextDNS maximum retention period)
 # The tool automatically handles pagination to prevent timeouts
-echo "Downloading ALL NextDNS logs (entire history)..."
+echo "Downloading ALL NextDNS logs from the past 2 years (max retention)..."
 echo "This may take some time depending on your log size..."
 python3 nextdns_logs.py
 
